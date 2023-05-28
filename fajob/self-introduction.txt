@@ -1,0 +1,54 @@
+面试官好我叫董薇
+本科毕业于中南大学探测制导与控制专业
+研究生毕业于国防科技大学系统论证与仿真评估专业
+
+毕业后进入寒武纪科技公司就职
+主要工作是推理引擎的测试开发
+具体负责网络精度和性能测力添加，
+benchmark测试框架的开发维护和优化，
+网络算子接口测试。
+
+网络精度和性能方面。
+添加了三十个以上的网络发现了一些三百个以上的缺陷
+
+benchmark测试框架开发方面。
+提升了测试框架的测试效率，资源利用效率，可复用性和可维护性。
+
+算子接口和API功能测试方面。
+开发公共工具模块。
+添加了五十余个算子功能和精度测试。发现八十多个缺陷。
+
+
+Hello, My name is Dong Wei
+
+I graduated from Central South University majoring in detection guidance and control
+
+and then, Graduated from National University of Defense Technology, majoring in Simulation Evaluation and System Demonstration as a Master Degree Candidate
+
+
+
+And then, I joined Cambrian Technology Company
+
+My main work, 
+
+first is testing inference engine module
+Specifically responsible for the addition of network accuracy and performance measurement case,
+
+secondly, I also responsible for the Development, maintenance and optimization of benchmark testing framework,
+
+thiredly, network and operator API testing.
+
+more detail:
+
+Added 30 networks and found 300 defects or even more in Network accuracy and performance test.
+
+
+Improve the test efficiency, resource utilization efficiency, reusability and maintainability for benchmark test framework.
+
+
+
+for the network and Operator API testing.
+
+Develop common tools modules. and add More than fifty operator functions and precision tests. More than 80 defects were found.
+
+ 
