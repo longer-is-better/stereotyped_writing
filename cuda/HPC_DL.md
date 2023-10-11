@@ -14,6 +14,9 @@
 https://www.zhihu.com/question/585545744/answer/2923591385  
 
 
+### 深度学习中有哪些空间还时间的优化方法？
+
+
 
 ### 寒武纪芯片架构？
 
@@ -964,6 +967,8 @@ PyTorch的缺点：
 
 下面是常见的一些问题：
 
+### 手写cpu卷积？如何优化？计算卷积的计算次数？
+
 ### gemm
 https://zhuanlan.zhihu.com/p/638522893  
 https://zhuanlan.zhihu.com/p/410278370
@@ -973,10 +978,10 @@ Strided Batched GEMM
 
 https://developer.nvidia.com/blog/cublas-strided-batched-matrix-multiply/
 
-### self-attention
+### attention？
 
 https://www.bilibili.com/video/BV1dt4y1J7ov  
-2023 加速 flash attention  
+2023 新论文: flash attention  
 家无算力类似矩阵乘的tile，通过算法的优化，实现了分块操作，将数据缓存在smem操作，减少了globel mem的访问提高有效带宽。
 https://www.bilibili.com/video/BV1SW4y1X7kh  
 
