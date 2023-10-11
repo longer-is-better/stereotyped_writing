@@ -5,8 +5,15 @@
 3. 各种AI框架知识：本文章以推理方向为主。
 4. AI基础知识：对于常见的机器学习算法，以及CV & NLP & 推荐模型有一定了解，了解计算流程以及模型结构即可，重点为了能分析出计算瓶颈在哪里，找出可能优化的方向。本部分略
 5. 算法题： 手写CUDA kernel和leetcode的比例大约为3:1。手写CUDA kernel的时候一般会结合第2部分一起问，一步一步要求你优化，每一步优化的具体原理，涉及到什么硬件知识等。
+6. 项目
 
 ## 高性能计算基础
+
+
+### 指令流水图？
+https://www.zhihu.com/question/585545744/answer/2923591385  
+
+
 
 ### 寒武纪芯片架构？
 
@@ -18,6 +25,17 @@ https://www.bilibili.com/video/BV1op4y157Qf
 * warp是最小调度单元，一般有32个线程，对应的物理结构是 SMSP，根据不同结构，一个 SMSP可以驻留多个warp，warp之间切换无价，每个cycle可以发射一个准备好的warp，如果没有准备好的warp，则 stall。
 * block，组织thread的单元，实际上被分成多个warp执行，一个block仅驻留在一个SM，ampere架构一个SM中有4个SMSP。
 * grid组织多个block，分配block 到 SM驻留。CUDA的存储体系结构，
+
+
+### GPU 多线程有没有锁？ 为什么？
+warp是最小调度单元
+
+### 并行编程下CPU缓存的伪共享
+
+https://zhuanlan.zhihu.com/p/135462276  
+一些并发框架对这种情况做了处理。如 Disruptor
+cache line填充，
+或者cpu绑定
 
 ### 每一种存储的优缺点，该如何合理使用。
 
@@ -108,7 +126,7 @@ __global__ void wmma_ker(half *a, half *b, float *c) {
 ### MPI，OpenMP以及CUDA各自适用的加速场景。
 
 #### MPI（Message Passing Interface）：
-
+https://www.bilibili.com/video/BV1uX4y1Q7rq  
 MPI 是一种用于分布式内存并行计算的通信库，主要用于在多台计算机之间传递数据和协调计算。它适用于以下场景：
 
 1. **大规模集群：** 当计算任务需要在多台计算机上进行协同计算时，MPI 可以用于实现节点之间的通信和数据传递。
@@ -273,7 +291,7 @@ cnperf, nsight compute
 
 ### kernel 的优化点和一些优化技巧：
 
-合并访存，shared_mem，solve bank conflict，原子操作，warp_shuffle  
+合并访存，shared_mem，solve bank conflict，原子操作，warp_shuffle，LDGSTS  
 
 #### 向量化LD
 https://developer.nvidia.com/blog/cuda-pro-tip-increase-performance-with-vectorized-memory-access/  
@@ -390,9 +408,89 @@ k8s, 虚拟化？
 
 ### 如何计算CPU指令的吞吐量和时延?
 
+### 卷积的三种加速计算方式，im2col+GEMM & Winograd & FFT，各自有何优缺点，cuDNN中有哪些实现？
+
+#### 卷积的计算量？
+https://blog.csdn.net/liuweiyuxiang/article/details/99637649  
+
+#### **im2col + GEMM (General Matrix Multiply)：**
+   这种方法将卷积操作转化为矩阵乘法（GEMM）的操作。首先，通过将卷积核展开为列向量，将输入数据转换为一个大的矩阵，然后使用矩阵乘法来计算输出特征图。
+   **优点：**
+
+   * 可以充分利用现代CPU和GPU的高效矩阵乘法实现。
+   * 简化了卷积操作的实现，容易并行化。
+
+   **缺点：**
+
+   * 转换操作（im2col）可能会增加内存消耗。
+   * 对于小的卷积核和输入，转换操作可能会带来较大的计算开销。
+
+##### 为什么快为什么慢
+https://stackoverflow.com/questions/46213531/how-is-using-im2col-operation-in-convolutional-nets-more-efficient
+
+为什么会变快呢？存放卷积计算参数的空间在计算机底层是一维线性排布的，当 cpu 需要读取内存中存放的数据用于计算时，系统会将一段连续的数据放到缓存中。这样做的目的是方便 cpu 快速的读取数据，因为读取内存的速度相比 cpu 的计算速度慢了很多。
+
+知道这些再看我们常规的卷积操作，这个操作需要虽然在逻辑上和卷积核进行卷积运算的参数都在一个区域，但在计算机内部他们并不是在连续的位置。这样为了满足 cpu 的计算需求，系统需要频繁的更新缓存。
+
+所以 im2col 采用的策略就是重新排布用于卷积运算的参数位置，让他们存于连续空间，这样对缓存的利用率就升高了，带来的就是卷积速度的提高。当然 gemm 提供的多线程功能也提高了卷积速度。
+
+那为什么会变慢呢？因为 im2col 在调整排列的过程中还是会让跨区域的读取数据，这本身就会导致频繁的刷新缓存，如果我们的卷积核只有1个，那么 im2col 操作之后的新排列就只会用一次，这样就达不到加快卷积运算的效果。当卷积核有多个时，这个重新排列后的优势就体现出来了。
+
+
+
+
+####  Winograd卷积：
+   Winograd卷积是一种通过变换输入数据和卷积核，将卷积操作转化为小规模矩阵乘法的方法。这种方法通过减小矩阵的规模来提高计算效率。
+   **优点：**
+
+   * 对于较小的卷积核，可以在一定程度上减少计算量。
+   * 可以利用矩阵乘法的高效实现。
+
+   **缺点：**
+
+   * 实现较复杂，需要进行Winograd域变换和逆变换。
+   * 对于较大的卷积核和输入，可能无法获得显著的性能提升。
+####  FFT卷积：
+   快速傅里叶变换（FFT）可以将卷积操作转化为频域的乘法操作。将输入和卷积核进行FFT变换，然后执行频域的元素乘法，最后进行逆FFT变换得到卷积结果。我测过的数据是当卷积核的边长大约等于图像边长的1/3以上，傅里叶变换才会有时间优势。
+   **优点：**
+
+   * 适用于大卷积核，因为FFT计算复杂度相对较低。
+   * 可以通过FFT库实现高效的频域操作。
+
+   **缺点：**
+
+   * 对于小卷积核，可能存在额外的计算开销，因为FFT变换本身的计算也需要时间。
+   * 实现相对复杂，需要对FFT库的调用和频域操作进行处理。
+   * 内存带宽需求增大：变换产生的复数、变换后变大的kernel都会增大内存带宽需求。
+   * 计算更复杂：如果没有专门的计算单元或者指令的话，一次[复数乘法](https://www.zhihu.com/search?q=%E5%A4%8D%E6%95%B0%E4%B9%98%E6%B3%95&search_source=Entity&hybrid_search_source=Entity&hybrid_search_extra=%7B%22sourceType%22%3A%22answer%22%2C%22sourceId%22%3A280445640%7D)实际上需要四次实数乘加。
+
+
 ## AI 框架知识
 
 这一部分会涉及一些AI框架(训练&推理&编译器)相关的问题，并且会重点根据简历上的项目经历去做一些发散性的提问。
+
+### TRT 如何调用实际的算子，算子实现在哪？
+
+
+### 如何向pytorch添加自己硬件的算子？
+https://pytorch.org/tutorials/advanced/cpp_extension.html  
+
+### pytorch 算子调用过程？
+https://www.jianshu.com/p/7c50b1480130  
+
+### 透彻了解的网络结构？
+合集： https://www.bilibili.com/video/BV1yE411p7L7  
+resnet: https://www.bilibili.com/video/BV1cM4y117ob  
+
+inception: https://www.bilibili.com/video/BV1Hf4y1p7JD  
+不同的感受野，   
+通过1X1的卷积降维，类似dwconv，减少计算量，  
+增加辅助分类器应对梯度消失，  
+卷积分解：两个小卷积代替一个大卷积，5x5 -> 2个3x3; 3x3->1x3 + 3x1  
+mobilenet： 见合集
+* depthwise + pointwise conv dwconv卷积核为零的问题
+
+
 
 ### MLIR有了解过吗？ONNX有了解过吗？
 
@@ -462,6 +560,39 @@ AI框架主要是为算法科学家设计的，这个设计定位使得AI框架�
 * 有效带宽 和 访存计算比 优化
 * 微架构优化。微架构优化主要焦点是如何充分利用好微架构的内置加速器的能力去最大化算子的性能。tensor core，sfl，vectorized-memory-access 等特色功能。
 
+
+
+
+### 量化算法
+https://www.bilibili.com/video/BV1bL411U747
+校准方法： max percentile mse kl散度
+
+#### 无label量化参数？
+看具体层的情况，
+量化误差训练微调
+equalization?
+
+
+#### 模型量化的加速原理，模型量化带来的精度损失如何解决？
+
+降低带宽压力，降低内存消耗，降低能耗
+
+量化的数据类型有专用计算单元，移动端出于功耗考虑可能值支持int8 fp16的计算
+
+---
+
+1. 非对称量化：对称量化将量化范围对称地分布在零点周围，而非对称量化允许量化范围在零点两侧不对称分布。非对称量化通常能够提供更好的精度，因为它可以更好地适应数据的分布。
+2. 非线性量化：实际的深度神经网络的权重和激活值通常是不均匀的，因此理论上使用非线性量化导致的精度损失更小，但在实际推理中非线性量化的计算复杂度较高
+3. 量化粒度：per_tensor,perchannel,per_row
+4. 感知量化训练：在模型训练过程中加入伪量化算子，通过训练时统计输入输出的数据范围可以提升量化后模型的精度，适用于对模型精度要求较高的场景
+5. 校准：获取 activation 的 scale 和 zero point 数据
+6. 混合精度：对不同的层按精度需求考虑是否量化
+7. 选择合适的量化参数算法 max percentile mse kl散度
+8. 最小化反量化结果和量化前数据做少量微调训练。
+---
+
+训练后量化：权重量化和全量化，权重量化仅量化模型的权重以压缩模型的大小，在推理时将权重反量化为原始的float32数据，后续推理流程与普通的float32模型一致。权重量化的好处是不需要校准数据集，不需要实现量化算子，且模型的精度误差较小，由于实际推理使用的仍然是float32算子，所以推理性能不会提高。全量化不仅会量化模型的权重，还会量化模型的激活值，在模型推理时执行量化算子来加快模型的推理速度。为了量化激活值，需要用户提供一定数量的校准数据集用于统计每一层激活值的分布，并对量化后的算子做校准。校准数据集可以来自训练数据集或者真实场景的输入数据，需要数量通常非常小。在量化激活值时会以校准数据集为输入，执行推理流程然后统计每层激活值的数据分布并得到相应的量化参数
+
 #### **图优化**
 
 图优化主要通过子图变换和算子融合的方式来达到减少计算量或者其他系统开销（如访存开销），从而达到性能优化的目的。图优化主要是希望在不影响模型的数值特性的基础上，通过图变换达到简化计算、资源开销，提升性能，所以是性能优化时的首选方法之一。下面列举几例。
@@ -476,7 +607,7 @@ AI框架主要是为算法科学家设计的，这个设计定位使得AI框架�
 
   在典型的深度学习模型中，一般计算密集型和访存密集型算子是相伴出现的，最简单的例子是”Conv + ReLU“相伴出现。这时候我们可以通过fusion来实现“in register computing”，从而减少访存密集型算子的访存，减少内存访问延时和带宽压力，提高推理效率。**算子的衔接是globalmem读写，很慢的。而且可以省去layout转换操作**
 
-#### **模型压缩**
+#### **模型压缩部署优化**
 
   上面的都是无损的，当这三点都做完了后，如果还需要额外的性能增益，这时候需要考虑模型压缩方案。模型压缩(Compression)主要手段有：模型量化、模型蒸馏和模型稀疏化。
 
@@ -484,9 +615,8 @@ AI框架主要是为算法科学家设计的，这个设计定位使得AI框架�
 * 模型蒸馏。模型蒸馏采用的是迁移学习的方法，通过采用预先训练好的复杂模型(Teacher Model)的输出作为监督信号去训练另外一个简单的网络(Student Model)，最后把Student Model用于推理。
 * 模型稀疏化。稀疏化首先是Han Song做FPGA的时候提出来的，这个时期的稀疏化就是纯稀疏化，减少synapses。这种稀疏化，适合FPGA，相当于减少了电路。但对于通用计算平台（如CPU，[GPU](https://cloud.tencent.com/product/gpu?from_column=20065&from=20065)等），不规则稀疏矩阵计算最终还是要落地到规则的计算单元上，这个时候是性能变好还是变差取决于problem size和如何把问题映射到计算单元上的方案，性能是提高还是降低是不确定的。所以后面业界的研究重点就转向了结构稀疏化
 
-#### **部署优化**
 
-##### 推理形式
+#### 推理形式
 * 按照拓扑排序的顺序串行 launch kernel
 * 根据层的依赖关系，没有依赖的 kernel launch 在不同 stream
 
@@ -546,24 +676,6 @@ kernel 自动调优
 动态内存
 
 
-### 模型量化的加速原理，模型量化带来的精度损失如何解决？
-
-降低带宽压力，降低内存消耗，降低能耗
-
-量化的数据类型有专用计算单元，移动端出于功耗考虑可能值支持int8 fp16的计算
-
----
-
-1. 非对称量化：对称量化将量化范围对称地分布在零点周围，而非对称量化允许量化范围在零点两侧不对称分布。非对称量化通常能够提供更好的精度，因为它可以更好地适应数据的分布。
-2. 非线性量化：实际的深度神经网络的权重和激活值通常是不均匀的，因此理论上使用非线性量化导致的精度损失更小，但在实际推理中非线性量化的计算复杂度较高
-3. 量化粒度：per_tensor,perchannel,per_row
-4. 感知量化训练：在模型训练过程中加入伪量化算子，通过训练时统计输入输出的数据范围可以提升量化后模型的精度，适用于对模型精度要求较高的场景
-5. 校准：获取 activation 的 scale 和 zero point 数据
-6. 混合精度：对不同的层按精度需求考虑是否量化
-
----
-
-训练后量化：权重量化和全量化，权重量化仅量化模型的权重以压缩模型的大小，在推理时将权重反量化为原始的float32数据，后续推理流程与普通的float32模型一致。权重量化的好处是不需要校准数据集，不需要实现量化算子，且模型的精度误差较小，由于实际推理使用的仍然是float32算子，所以推理性能不会提高。全量化不仅会量化模型的权重，还会量化模型的激活值，在模型推理时执行量化算子来加快模型的推理速度。为了量化激活值，需要用户提供一定数量的校准数据集用于统计每一层激活值的分布，并对量化后的算子做校准。校准数据集可以来自训练数据集或者真实场景的输入数据，需要数量通常非常小。在量化激活值时会以校准数据集为输入，执行推理流程然后统计每层激活值的数据分布并得到相应的量化参数
 
 ### ONNX Runtime支持在多种硬件上进行推理，说明具体的实现机制。
 
@@ -853,8 +965,9 @@ PyTorch的缺点：
 下面是常见的一些问题：
 
 ### gemm
-
+https://zhuanlan.zhihu.com/p/638522893  
 https://zhuanlan.zhihu.com/p/410278370
+https://zhuanlan.zhihu.com/p/593462636
 
 Strided Batched GEMM
 
@@ -862,14 +975,17 @@ https://developer.nvidia.com/blog/cublas-strided-batched-matrix-multiply/
 
 ### self-attention
 
-https://www.bilibili.com/video/BV1dt4y1J7ov
+https://www.bilibili.com/video/BV1dt4y1J7ov  
+2023 加速 flash attention  
+家无算力类似矩阵乘的tile，通过算法的优化，实现了分块操作，将数据缓存在smem操作，减少了globel mem的访问提高有效带宽。
+https://www.bilibili.com/video/BV1SW4y1X7kh  
 
 ### BN ，layernorm 层有什么用，具体怎么算的？
 
-    随着训练，激活结果的分布可能会从 0附近偏移，导致梯度消失，梯度爆炸，训练结果不好
-    https://www.bilibili.com/video/BV1DM4y1w7J4
+   随着训练，激活结果的分布可能会从 0附近偏移，导致梯度消失，梯度爆炸，训练结果不好  
+   https://www.bilibili.com/video/BV1DM4y1w7J4
 
-BN对不同batch的chanel做，layernorm对同一batch的channel之间逐像素做
+BN对不同batch的chanel做，layernorm对同一batch的channel之间逐像素做   
 
 ### softmax有什么用，怎么做的
 
@@ -881,6 +997,16 @@ BN对不同batch的chanel做，layernorm对同一batch的channel之间逐像素�
 4. 二维reduce-sum
 5. 卷积
 6. 将单stream改成多stream
+
+溢出怎么处理？
+https://www.codelast.com/%E5%8E%9F%E5%88%9B-%E5%A6%82%E4%BD%95%E9%98%B2%E6%AD%A2softmax%E5%87%BD%E6%95%B0%E4%B8%8A%E6%BA%A2%E5%87%BAoverflow%E5%92%8C%E4%B8%8B%E6%BA%A2%E5%87%BAunderflow/
+
+e^(X - Xmax) 变换
+e^(X1 - Xmax) / (e^(X1 - Xmax) + e^(X2 - Xmax))
+
+同时解决上下溢出
+
+
 
 以矩阵乘法为例说明一下一个典型的面试流程，下面以A表示面试官，B表示面试者。
 
@@ -919,63 +1045,37 @@ https://developer.nvidia.com/blog/efficient-matrix-transpose-cuda-cc/
 
 https://segmentfault.com/a/1190000043451674
 
-## 一些比较零碎的问题
 
-### 1. 卷积的三种加速计算方式，im2col+GEMM & Winograd & FFT，各自有何优缺点，cuDNN中有哪些实现？
+### input 里面符合某条件的所有数，存在output (index atomicADD)?
 
-1. **im2col + GEMM (General Matrix Multiply)：**
-   这种方法将卷积操作转化为矩阵乘法（GEMM）的操作。首先，通过将卷积核展开为列向量，将输入数据转换为一个大的矩阵，然后使用矩阵乘法来计算输出特征图。
-   **优点：**
 
-   * 可以充分利用现代CPU和GPU的高效矩阵乘法实现。
-   * 简化了卷积操作的实现，容易并行化。
+### cuda排序
 
-   **缺点：**
 
-   * 转换操作（im2col）可能会增加内存消耗。
-   * 对于小的卷积核和输入，转换操作可能会带来较大的计算开销。
-2. **Winograd卷积：**
-   Winograd卷积是一种通过变换输入数据和卷积核，将卷积操作转化为小规模矩阵乘法的方法。这种方法通过减小矩阵的规模来提高计算效率。
-   **优点：**
 
-   * 对于较小的卷积核，可以在一定程度上减少计算量。
-   * 可以利用矩阵乘法的高效实现。
 
-   **缺点：**
+## 其他问题
 
-   * 实现较复杂，需要进行Winograd域变换和逆变换。
-   * 对于较大的卷积核和输入，可能无法获得显著的性能提升。
-3. **FFT卷积：**
-   快速傅里叶变换（FFT）可以将卷积操作转化为频域的乘法操作。将输入和卷积核进行FFT变换，然后执行频域的元素乘法，最后进行逆FFT变换得到卷积结果。我测过的数据是当卷积核的边长大约等于图像边长的1/3以上，傅里叶变换才会有时间优势。
-   **优点：**
 
-   * 适用于大卷积核，因为FFT计算复杂度相对较低。
-   * 可以通过FFT库实现高效的频域操作。
 
-   **缺点：**
-
-   * 对于小卷积核，可能存在额外的计算开销，因为FFT变换本身的计算也需要时间。
-   * 实现相对复杂，需要对FFT库的调用和频域操作进行处理。
-   * 内存带宽需求增大：变换产生的复数、变换后变大的kernel都会增大内存带宽需求。
-   * 计算更复杂：如果没有专门的计算单元或者指令的话，一次[复数乘法](https://www.zhihu.com/search?q=%E5%A4%8D%E6%95%B0%E4%B9%98%E6%B3%95&search_source=Entity&hybrid_search_source=Entity&hybrid_search_extra=%7B%22sourceType%22%3A%22answer%22%2C%22sourceId%22%3A280445640%7D)实际上需要四次实数乘加。
-
-### 2. 数字信号的采样定理、熵 & 交叉熵 的含义 & 计算公式
+### 脑洞： 如果在gpu这种设备想实现一个sin这种的超越函数怎么做呢？
+### 数字信号的采样定理、熵 & 交叉熵 的含义 & 计算公式
 
    x个球里面摸球 的 信息量 ： logx 熵：事件的总信息量，交叉熵： 预期概率 P 实际概率 Q QlogP
 
-### 3. 还记得KKT条件吗？写程序求解一个非线性方程，并说明具体用到的优化方法。
+### 还记得KKT条件吗？写程序求解一个非线性方程，并说明具体用到的优化方法。
 
-### 4. 脑洞问题：如何从编码的角度进行模型压缩？
+### 脑洞问题：如何从编码的角度进行模型压缩？
 
-### 5. 如何将你研究生阶段的成果应用到我们的产品中？
+### 如何将你研究生阶段的成果应用到我们的产品中？
 
-### 6. 给了一个TF 模型的profile，找出里面的bottle neck，提出如何改进这个模型的性能的方法。
+### 给了一个TF 模型的profile，找出里面的bottle neck，提出如何改进这个模型的性能的方法。
 
    nsight sys，查看kernel空闲处的原因，dataload？延迟掩藏？带宽上限？算力上限？
 
    nsight compute
 
-### 7. MIPS流水线有几级？分别是哪些组成部分？
+### MIPS流水线有几级？分别是哪些组成部分？
 
 1. **取指令（Instruction Fetch，IF）：** 从指令内存中获取下一条指令，并将其送入流水线。
 2. **指令译码（Instruction Decode，ID）：** 对取出的指令进行解码，确定操作类型、寄存器和立即数等。
@@ -983,16 +1083,18 @@ https://segmentfault.com/a/1190000043451674
 4. **访存（Memory Access，MEM）：** 如果指令需要访问内存（如加载/存储指令），在此阶段进行内存操作。
 5. **写回（Write Back，WB）：** 将执行结果写回寄存器文件。
 
-### 8. 说一下transformer的具体结构，如何加速transformer进行推理？
+### 说一下transformer的具体结构，如何加速transformer进行推理？
 
 1. https://www.bilibili.com/video/BV1dt4y1J7ov
 2. https://www.bilibili.com/video/BV1ih4y1J7rx
 
-### 9. attention的计算公式，写一下tf里面对应的代码
+### attention的计算公式，写一下tf里面对应的代码
 
-### 10. 马尔科夫链简单知识
+### 马尔科夫链简单知识
 
-### 11. 一道较难的概率题
+### 一个计算图中有一部分需要在CPU计算另一部分在GPU计算，如何分割子图
+
+### 一道较难的概率题
 
 ## 推荐参考资料
 
@@ -1006,24 +1108,23 @@ https://segmentfault.com/a/1190000043451674
 
 建议： 1 ~ 4必读，这是所有领域的基础知识，5 ~ 7需要根据个人的研究兴趣和方向有选择性地深入阅读。
 
-# 帅哥
+# 项目经验：
 
-## 卷积的流程？
+指令流水线分析工具？
 
-nhwc 的 layout 易于对特征图分块尺寸和指令对齐，不需要memcpy
-供调用的conv汇编级别指令是对所有in_channel做一个filter的卷积
-需要对out channel循环。
-？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？？完善
 
-conv算子：
+## conv算子：
 
 1. 硬件有conv操作，channel 需要64 对齐，第一个conv只有3channel，只发挥了3/64的性能通过trans将channel做到48(3x4x4)，可以发挥48/64的性能。
+nhwc 的 layout 易于对特征图分块尺寸和指令对齐，不需要memcpy
+供调用的conv汇编级别指令是对所有in_channel做一个filter的卷积
+需要对out channel循环。hw 64 对齐
+之前是仅拆分hw没有append在channel，优化为在channel维度append。
 
-如何将3->27的，额外的开销？dma, 延迟掩藏
+2. 可变shape，需要在算子前面加标量计算，因为要实时演算形状，拆分方式，循环次数等等的计算策略参数，串行执行导致硬件空转性能大幅度下降。通过一点一点注释代码+计时定位。  
+执行配置参数的计算之前是在device计算的，优化到host计算，lunchkernel之后不需要多余的计算。
 
-conv是一个汇编指令
-
-2. 可变shape，需要在算子前面加标量计算，因为要实时演算形状，拆分方式，循环次数等等的计算策略参数，串行执行导致硬件空转性能大幅度下降。通过一点一点注释代码+计时定位。然后通过 调整指令顺序，将没有依赖的指令提前，用数据加载掩藏标量计算。硬件用verilog验证波形符合猜想。
+3. conv拆分不平均，三个mlu计算时间相差大，逻辑错误导致。
 
 ## Nsight compute
 
@@ -1074,7 +1175,7 @@ gridsize 参考 SM 数量
 2. 每个bank每时钟周期的带宽为4字节
 3. 连续的4字节单元映射到连续的bank。如0-3字节在bank0，4-7字节在bank1……字节128-131字节在bank0
 4. 若warp中不同的线程访问相同的bank，则会发生bank冲突(bank conflict)，bank冲突时，warp的一条访存指令会被拆分为n条不冲突的访存请求，降低shared memory的有效带宽。所以需要尽量避免bank冲突。
-5. CUDA 11.0以上可以使用*async-copy* feature^[[3]](https://zhuanlan.zhihu.com/p/570795544#ref_3)^
+5. CUDA 11.0以上可以使用*async-copy* feature [[3]](https://zhuanlan.zhihu.com/p/570795544#ref_3)
 
 ### 优化线程级并行
 
@@ -1124,3 +1225,4 @@ TensorCore可以用来快速进行D=A*B+C矩阵运算，提供 `load_matrix_sync
 结论： template DATA_TYPE 的 kernel 没有意义，因为 shared mem 必须为 extern 会导致同名但是类型不同的变量  
 结论： Nsight compute bug，bank conflict 还记录了其他 stall  
 https://forums.developer.nvidia.com/t/shared-memory-bank-conflicts-and-nsight-metric
+

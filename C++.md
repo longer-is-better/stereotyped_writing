@@ -159,6 +159,9 @@ static 是 C/C++ 中很常用的修饰符，它被用来控制变量的存储方
 
 想将函数某变量的值保存至下一次调用，又需要将变量的访问范围控制在函数内部。
 
+## 不同函数中同名的 static？  
+https://blog.csdn.net/lyp90h/article/details/120866384
+
 ## 一览表
 
 | 存储位置<br />初始化 |                                          全局                                          |                                        函数内                                        |                           类内                           |
@@ -316,6 +319,60 @@ int main(){
 ### shared ptr
 
 引用计数
+
+智能指针有2个成员，一个是引用计数是原子的，另外一个原始指针 不是  
+综合来说 就不是  
+指向资源的指针修改方向和修改引用计数两步并不是原子的，所以是线程不安全的，需要自己控制锁保证线程安全。
+
+#### C++智能指针中引用计数的实现为什么不用static int count这种形式
+```
+shared_ptr<int> a;
+shared_ptr<int> b;
+
+shared_ptr<int> c = b;  // ref of a increase wrongly
+```
+
+#### make_shared() & shared_ptr<>() 有什么区别？
+构建一个shared_ptr需要两次不连续内存分配：  
+1. 显示new 来 创建需要管理的内存，比如上面的new Test()  
+2. 构建 shared_ptr 然后把 需要管理的内存传进来，shared_ptr堆上动态创建use_count  
+带来的就是两次 不连续的 内存创建
+
+make_shared只需要一次内存分配，shared_ptr内部计数和指向的内存在连续的块
+
+#### 使用make_shared的好处有哪些
+
+效率更好，因为只需要一次内存分配，并且不需要用户显示new  
+异常安全  
+```
+f(shared_ptr<Test>(new Test()),  getMemory());  
+我们以为的顺序：
+
+1. new Test
+2. std::shared_ptr
+3. getMemory()
+不同的语言对于函数参数的顺序是不确定的, 但是 new Test肯定在 std::shared_ptr之前
+
+那么
+
+1. new Test
+2. getMemory
+3. std::shared_ptr
+当getMemory发生异常，内存泄漏就出来了
+
+解决办法：
+1. 独立的语句
+shared_ptr a = shared_ptr(new Test());
+f(a, getMemory());
+
+2. make_shared
+f(make_shared(), getMemory());
+```
+
+#### 对象需要把自己的 this 指针传给函数。用智能指针如何实现？ weak_ptr。 这个weak_ptr 如何初始化？
+https://en.cppreference.com/w/cpp/memory/enable_shared_from_this
+https://stackoverflow.com/questions/37598634/can-pointer-this-be-a-shared-pointer
+https://blog.csdn.net/GW569453350game/article/details/49465689
 
 ### unique ptr
 
@@ -640,6 +697,59 @@ https://cloud.tencent.com/developer/article/1177216
 找不到符号：编译阶段
 找不到符号的定义：链接
 
-# 有 100000 个字符串，预处理时间不关心，如何快速查找？
-先问多大的字符串
-内存够用的话，字典树应该是比较好的选择
+
+
+# C++ int A[200] 可以 for (int a: A)吗？为什么？
+可以，预编译阶段的处理
+
+# python如何调用 C++?
+https://www.bilibili.com/video/BV1Ng41167t6  
+
+
+
+
+
+
+
+# C++ 泛型
+
+## C++ 如何将不同类型放进同一容器
+https://www.zhihu.com/question/33594512/answer/2867926201  
+1. union
+2. std::variant
+3. std::any
+4. 抽象类
+5. reinterupt_cast
+
+
+
+# C++11 多线程
+
+mutex,(un)lock,std::lock_guard,dead_lock,std::lock,std::adopt_lock: https://www.bilibili.com/video/BV1Yb411L7ak/?p=7  
+unique_lock: https://www.bilibili.com/video/BV1Yb411L7ak/?p=8  
+unique_lock(, std::defer_lock) 有是那么优点  
+单例，call_once: https://www.bilibili.com/video/BV1Yb411L7ak/?p=9  
+条件变量，wait，notify_one（虚假唤醒）, notify_all: https://www.bilibili.com/video/BV1Yb411L7ak/?p=10  
+async, future, packaged_task, promise: https://www.bilibili.com/video/BV1Yb411L7ak/?p=11  
+
+
+线程池：https://www.bilibili.com/video/BV1Yb411L7ak/?p=15  
+
+
+atomic续，深入 asynchttps://www.bilibili.com/video/BV1Yb411L7ak/?p=13  
+
+# 被问到的编程题
+树的镜像
+有 100000 个字符串，预处理时间不关心，如何快速查找？  
+大数(string) 乘法  
+二分查找  
+数组每次从最左或最右取一个数，取数的和最大是多少？ 逆向思维  
+数组包含若干 0 。 得到所有非零数组成的数组，（inplace O(n) 保序） 双指针  
+图的拓扑排序  
+int64里面有多少 bit 1  https://www.cnblogs.com/graphics/archive/2010/06/21/1752421.html leetcode.191  
+二分查找  
+全排序（计算版而非穷举版）  
+实现 shared_ptr
+lrucache
+循环队列
+
