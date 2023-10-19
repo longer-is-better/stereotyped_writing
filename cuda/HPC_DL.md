@@ -15,6 +15,7 @@ https://www.zhihu.com/question/585545744/answer/2923591385
 
 
 ### 深度学习中有哪些空间还时间的优化方法？
+blur模糊， kernel全为1的卷积 https://zhuanlan.zhihu.com/p/384654825  
 
 
 
@@ -32,6 +33,10 @@ https://www.bilibili.com/video/BV1op4y157Qf
 
 ### GPU 多线程有没有锁？ 为什么？
 warp是最小调度单元
+block在SM上 warp在SMSP上
+线程之间很少出现资源竞争的场景
+
+
 
 ### 并行编程下CPU缓存的伪共享
 
@@ -78,9 +83,13 @@ cache line填充，
 
 ### 说明一下神经网络加速器与CPU、GPU的区别，他们各自有何优势？
 
+
+
 * CPU 仅有标量 ALU，现在 cpu 也有一些指令集支持 SIMD 指令
 * GPU 可以加速神经网络应用和图像应用。有多个标量ALU，volta 引入 tensor core(更接近simd) 加速 GEMM 更好的支持神经网络计算。
-* 加速器： SIMD (systolic arrays) 深度学习硬件加速器基于特定领域架构(Domain Specific Architecture， DSA)有更高的性能和更低的能耗。 一般都有标量，向量，矩阵的脉动阵列。
+* 加速器： 
+SIMD：  深度学习硬件加速器基于特定领域架构(Domain Specific Architecture， DSA)有更高的性能和更低的能耗。 
+脉动阵列： 一般都向量，矩阵的脉动阵列。 https://www.cnblogs.com/kongchung/p/13227256.html；
 
 ### 半精度浮点数FP16各个部分的具体位数，为什么要有半精度浮点数？
 
@@ -97,7 +106,7 @@ https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#id42
 https://developer.nvidia.com/blog/programming-tensor-cores-cuda-9/  
 
 * fma 需要 寄存器 - alu - 寄存器 - alu -寄存器 转移数据，tensorcore 不需要  
-* 从 volta 开始引入，每个 SM 有 4 个 SMSP， 每个 SMSP 有 2 个tensor core，每个tensor core每个cycle可以提供 4x4x4的标量融合乘加，即 4x4 的矩阵乘加。  
+* 从 volta 开始引入，每个 SM 有 4 个 SMSP， 每个 SMSP 有 2 个tensor core，每个tensor core每个cycle可以提供 4x4 的矩阵乘加。  
 * 每个SM即可提供 8 次这样的运算。  
 * cuda编程中，WMMA api 打包了 16 x 16 矩阵乘加操作
 
@@ -316,7 +325,8 @@ libcuxx, thrust, cutlass, CUB, mordengpu
 也可以自定义的在矩阵乘epilogue融合其他操作达到自定义的算子融合
 head only , 允许编译器优化  
 https://github.com/NVIDIA/cutlass/issues/109  
-https://www.bilibili.com/video/BV13w411o7cu
+https://www.bilibili.com/video/BV13w411o7cu  
+https://www.bilibili.com/video/BV1Qk4y1n7Nd
 
 
 ### 如何进行system的优化，会用到哪些工具？
@@ -428,6 +438,10 @@ https://blog.csdn.net/liuweiyuxiang/article/details/99637649
    * 转换操作（im2col）可能会增加内存消耗。
    * 对于小的卷积核和输入，转换操作可能会带来较大的计算开销。
 
+
+
+
+
 ##### 为什么快为什么慢
 https://stackoverflow.com/questions/46213531/how-is-using-im2col-operation-in-convolutional-nets-more-efficient
 
@@ -472,7 +486,21 @@ https://stackoverflow.com/questions/46213531/how-is-using-im2col-operation-in-co
 
 这一部分会涉及一些AI框架(训练&推理&编译器)相关的问题，并且会重点根据简历上的项目经历去做一些发散性的提问。
 
+
+### triton
+https://www.bilibili.com/video/BV1KS4y1v7zd  
+
+### deepspeed 和 大模型引擎
+
+
+### 自动驾驶相关模型
+车道线检测 https://github.com/cfzd/Ultra-Fast-Lane-Detection  
+三维重建 BEVFormer https://zhuanlan.zhihu.com/p/543335939  
+三维重建 nerf https://blog.csdn.net/qq_44324007/article/details/129998545  
+
+
 ### TRT 如何调用实际的算子，算子实现在哪？
+cudnn  
 
 
 ### 如何向pytorch添加自己硬件的算子？
@@ -487,7 +515,7 @@ resnet: https://www.bilibili.com/video/BV1cM4y117ob
 
 inception: https://www.bilibili.com/video/BV1Hf4y1p7JD  
 不同的感受野，   
-通过1X1的卷积降维，类似dwconv，减少计算量，  
+通过1X1的卷积降维，类似pwconv，减少计算量，  
 增加辅助分类器应对梯度消失，  
 卷积分解：两个小卷积代替一个大卷积，5x5 -> 2个3x3; 3x3->1x3 + 3x1  
 mobilenet： 见合集
@@ -570,10 +598,18 @@ AI框架主要是为算法科学家设计的，这个设计定位使得AI框架�
 https://www.bilibili.com/video/BV1bL411U747
 校准方法： max percentile mse kl散度
 
+#### 对称非对称
+量化前后零点是否对应
+
+
 #### 无label量化参数？
 看具体层的情况，
 量化误差训练微调
 equalization?
+
+#### PTQ QAT？
+post trian quantization  
+quantization aware trianing  
 
 
 #### 模型量化的加速原理，模型量化带来的精度损失如何解决？
@@ -584,7 +620,7 @@ equalization?
 
 ---
 
-1. 非对称量化：对称量化将量化范围对称地分布在零点周围，而非对称量化允许量化范围在零点两侧不对称分布。非对称量化通常能够提供更好的精度，因为它可以更好地适应数据的分布。
+1. 非对称量化：量化前后零点是否对应
 2. 非线性量化：实际的深度神经网络的权重和激活值通常是不均匀的，因此理论上使用非线性量化导致的精度损失更小，但在实际推理中非线性量化的计算复杂度较高
 3. 量化粒度：per_tensor,perchannel,per_row
 4. 感知量化训练：在模型训练过程中加入伪量化算子，通过训练时统计输入输出的数据范围可以提升量化后模型的精度，适用于对模型精度要求较高的场景
@@ -967,6 +1003,10 @@ PyTorch的缺点：
 
 下面是常见的一些问题：
 
+### softmax kernel
+每个block处理一行元素，否则无法处理reduce的全局同步
+
+
 ### 手写cpu卷积？如何优化？计算卷积的计算次数？
 
 ### gemm
@@ -1230,4 +1270,4 @@ TensorCore可以用来快速进行D=A*B+C矩阵运算，提供 `load_matrix_sync
 结论： template DATA_TYPE 的 kernel 没有意义，因为 shared mem 必须为 extern 会导致同名但是类型不同的变量  
 结论： Nsight compute bug，bank conflict 还记录了其他 stall  
 https://forums.developer.nvidia.com/t/shared-memory-bank-conflicts-and-nsight-metric
-
+cublas cudnn 的列主序确实还挺绕的，理清了之后还会忘记的
